@@ -1,0 +1,469 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Model Selection Tool</title>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      body {
+        font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 20px;
+      }
+
+      .container {
+        background: rgba(255, 255, 255, 0.95);
+        backdrop-filter: blur(10px);
+        border-radius: 20px;
+        box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+        overflow: hidden;
+        width: 100%;
+        max-width: 900px;
+      }
+
+      .header {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        padding: 30px;
+        text-align: center;
+      }
+
+      .header h1 {
+        font-size: 2.5rem;
+        margin-bottom: 10px;
+        font-weight: 700;
+      }
+
+      .header p {
+        font-size: 1.1rem;
+        opacity: 0.9;
+      }
+
+      .main-content {
+        padding: 40px;
+      }
+
+      .form-group {
+        margin-bottom: 25px;
+      }
+
+      label {
+        display: block;
+        margin-bottom: 8px;
+        font-weight: 600;
+        color: #333;
+        font-size: 1rem;
+      }
+
+      select,
+      input[type="text"] {
+        width: 100%;
+        padding: 12px 16px;
+        border: 2px solid #e1e8ed;
+        border-radius: 10px;
+        font-size: 1rem;
+        transition: all 0.3s ease;
+        background: white;
+      }
+
+      select:focus,
+      input[type="text"]:focus {
+        outline: none;
+        border-color: #667eea;
+        box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+      }
+
+      select:disabled {
+        background: #f8f9fa;
+        color: #6c757d;
+        cursor: not-allowed;
+      }
+
+      .file-upload {
+        border: 2px dashed #667eea;
+        border-radius: 10px;
+        padding: 40px 20px;
+        text-align: center;
+        background: rgba(102, 126, 234, 0.05);
+        cursor: pointer;
+        transition: all 0.3s ease;
+      }
+
+      .file-upload:hover {
+        background: rgba(102, 126, 234, 0.1);
+        border-color: #5a67d8;
+      }
+
+      .file-upload.dragover {
+        background: rgba(102, 126, 234, 0.15);
+        border-color: #4c51bf;
+      }
+
+      .submit-btn {
+        width: 100%;
+        padding: 15px;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        border: none;
+        border-radius: 10px;
+        font-size: 1.1rem;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+      }
+
+      .submit-btn:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 10px 20px rgba(102, 126, 234, 0.3);
+      }
+
+      .submit-btn:active {
+        transform: translateY(0);
+      }
+
+      .loading {
+        display: none;
+        text-align: center;
+        padding: 40px;
+        background: rgba(102, 126, 234, 0.05);
+        border-radius: 10px;
+        margin-top: 20px;
+      }
+
+      .spinner {
+        border: 4px solid #f3f3f3;
+        border-top: 4px solid #667eea;
+        border-radius: 50%;
+        width: 40px;
+        height: 40px;
+        animation: spin 1s linear infinite;
+        margin: 0 auto;
+      }
+
+      @keyframes spin {
+        0% {
+          transform: rotate(0deg);
+        }
+        100% {
+          transform: rotate(360deg);
+        }
+      }
+
+      .result-container {
+        display: none;
+        margin-top: 20px;
+        padding: 20px;
+        border-radius: 10px;
+        border: 2px solid;
+        background: white;
+      }
+
+      .result-success {
+        border-color: #28a745;
+        background: #f8fff9;
+      }
+
+      .result-error {
+        border-color: #dc3545;
+        background: #fff8f8;
+      }
+
+      .metrics-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+        gap: 15px;
+        margin: 20px 0;
+      }
+
+      .metric-card {
+        background: white;
+        padding: 15px;
+        border-radius: 8px;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        text-align: center;
+      }
+
+      .metric-value {
+        font-size: 1.5rem;
+        font-weight: bold;
+        color: #667eea;
+        margin-bottom: 5px;
+      }
+
+      .metric-label {
+        font-size: 0.9rem;
+        color: #666;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+      }
+
+      @media (max-width: 768px) {
+        .container {
+          margin: 10px;
+          border-radius: 15px;
+        }
+
+        .header {
+          padding: 20px;
+        }
+
+        .header h1 {
+          font-size: 2rem;
+        }
+
+        .main-content {
+          padding: 20px;
+        }
+
+        .metrics-grid {
+          grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+          gap: 10px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div class="header">
+        <h1>🤖 Model Selection Tool</h1>
+        <p>Analiza y compara modelos de IA para procesamiento de imágenes</p>
+      </div>
+
+      <div class="main-content">
+        <form id="analyzeForm">
+          <div class="form-group">
+            <label for="provider">Proveedor de IA:</label>
+            <select id="provider" name="provider" required>
+              <option value="">Selecciona un proveedor...</option>
+              {% for provider in models.keys() %}
+              <option value="{{ provider }}">{{ provider.title() }}</option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label for="model_name">Modelo:</label>
+            <select id="model_name" name="model_name" required disabled>
+              <option value="">Primero selecciona un proveedor...</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label for="image">Imagen a analizar:</label>
+            <div
+              class="file-upload"
+              onclick="document.getElementById('image').click()"
+            >
+              <input
+                type="file"
+                id="image"
+                name="image"
+                accept="image/*"
+                required
+                style="display: none"
+              />
+              <p>📸 Haz clic aquí o arrastra una imagen</p>
+              <p style="font-size: 0.9em; color: #666; margin-top: 10px">
+                Formatos soportados: JPG, PNG, GIF, WebP
+              </p>
+            </div>
+          </div>
+
+          <button type="submit" class="submit-btn">🚀 Analizar Imagen</button>
+        </form>
+
+        <div class="loading">
+          <div class="spinner"></div>
+          <p style="margin-top: 15px">Analizando imagen... Por favor espera</p>
+        </div>
+
+        <div id="result" class="result-container"></div>
+      </div>
+    </div>
+
+    <script id="models-data" type="application/json">
+      {{ models | tojson | safe }}
+    </script>
+    <script>
+      console.log("Script iniciado");
+
+      try {
+        // Modelos disponibles desde el backend
+        const modelsDataElement = document.getElementById("models-data");
+        console.log("Elemento models-data:", modelsDataElement);
+
+        const availableModels = JSON.parse(modelsDataElement.textContent);
+        console.log("Modelos cargados:", availableModels);
+
+        // Referencias a elementos
+        const form = document.getElementById("analyzeForm");
+        const providerSelect = document.getElementById("provider");
+        const modelSelect = document.getElementById("model_name");
+        const fileInput = document.getElementById("image");
+        const fileUpload = document.querySelector(".file-upload");
+        const loading = document.querySelector(".loading");
+        const result = document.getElementById("result");
+
+        // Modelos que soportan visión
+        const visionModels = {
+          ollama: ["llava:13b", "bakllava"],
+          gemini: ["gemini-1.5-flash"],
+        };
+
+        console.log("Elementos encontrados:", {
+          form,
+          providerSelect,
+          modelSelect,
+          fileInput,
+          fileUpload,
+          loading,
+          result,
+        });
+
+        // Manejar cambio de proveedor
+        if (providerSelect) {
+          providerSelect.addEventListener("change", function () {
+            console.log("Proveedor cambiado a:", this.value);
+
+            modelSelect.innerHTML = '<option value="">Modelo...</option>';
+
+            if (this.value && availableModels[this.value]) {
+              modelSelect.disabled = false;
+              availableModels[this.value].forEach((model) => {
+                const option = document.createElement("option");
+                option.value = model;
+
+                // Limpiar el nombre del modelo (remover comentarios)
+                const cleanModel = model.split("#")[0].trim();
+                const hasVision =
+                  visionModels[this.value] &&
+                  visionModels[this.value].includes(cleanModel);
+                option.textContent = `${cleanModel} ${hasVision ? "🖼️" : "📝"}`;
+
+                modelSelect.appendChild(option);
+              });
+              console.log("Modelos agregados para", this.value);
+            } else {
+              modelSelect.disabled = true;
+            }
+          });
+        }
+
+        // Manejar envío del formulario
+        if (form) {
+          form.addEventListener("submit", async function (e) {
+            e.preventDefault();
+            console.log("¡Formulario enviado!");
+
+            // Verificar datos
+            if (!fileInput.files[0]) {
+              alert("Por favor selecciona una imagen");
+              return;
+            }
+
+            if (!providerSelect.value || !modelSelect.value) {
+              alert("Por favor selecciona proveedor y modelo");
+              return;
+            }
+
+            // Verificar si el modelo soporta visión
+            const selectedModel = modelSelect.value.split("#")[0].trim();
+            const hasVision =
+              visionModels[providerSelect.value] &&
+              visionModels[providerSelect.value].includes(selectedModel);
+
+            if (!hasVision) {
+              const proceed = confirm(
+                `⚠️ El modelo "${selectedModel}" no soporta análisis de imágenes directamente.\n\n` +
+                  `Para mejores resultados, usa:\n` +
+                  `• llava:13b 🖼️\n` +
+                  `• bakllava 🖼️\n` +
+                  `• gemini-1.5-flash 🖼️\n\n` +
+                  `¿Continuar de todos modos?`
+              );
+
+              if (!proceed) {
+                return;
+              }
+            }
+
+            console.log("Enviando datos:", {
+              provider: providerSelect.value,
+              model: selectedModel,
+              file: fileInput.files[0].name,
+              hasVision: hasVision,
+            });
+
+            // Mostrar loading
+            if (loading) loading.style.display = "block";
+            if (result) result.style.display = "none";
+
+            // Crear FormData
+            const formData = new FormData();
+            formData.append("image", fileInput.files[0]);
+            formData.append("provider", providerSelect.value);
+            formData.append("model_name", selectedModel);
+
+            try {
+              const response = await fetch("/api/analyze", {
+                method: "POST",
+                body: formData,
+              });
+
+              console.log("Respuesta recibida:", response.status);
+              const data = await response.json();
+              console.log("Datos recibidos:", data);
+
+              if (response.ok) {
+                // Mostrar resultado exitoso
+                result.className = "result-container result-success";
+                result.innerHTML = `
+                  <h3>✅ Análisis Completado</h3>
+                  <p><strong>Proveedor:</strong> ${data.model_info.provider}</p>
+                  <p><strong>Modelo:</strong> ${data.model_info.model_name}</p>
+                  <p><strong>Archivo:</strong> ${data.image_info.filename}</p>
+                  <div style="margin-top: 15px; padding: 15px; background: rgba(255,255,255,0.7); border-radius: 5px;">
+                    <strong>Análisis:</strong><br>
+                    ${data.analysis}
+                  </div>
+                `;
+              } else {
+                // Mostrar error
+                result.className = "result-container result-error";
+                result.innerHTML = `
+                  <h3>❌ Error en el Análisis</h3>
+                  <p>${data.detail || "Error desconocido"}</p>
+                `;
+              }
+            } catch (error) {
+              console.error("Error:", error);
+              result.className = "result-container result-error";
+              result.innerHTML = `
+                <h3>❌ Error de Conexión</h3>
+                <p>Error: ${error.message}</p>
+              `;
+            } finally {
+              if (loading) loading.style.display = "none";
+              if (result) result.style.display = "block";
+            }
+          });
+          console.log("Event listener agregado al formulario");
+        }
+      } catch (error) {
+        console.error("Error en JavaScript:", error);
+      }
+    </script>
+  </body>
+</html>
