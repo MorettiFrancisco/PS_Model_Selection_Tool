@@ -373,21 +373,36 @@ class ModelEvaluator:
 
         # Rankings por categoría (convertir a diccionarios)
         rankings = {
-            "overall": [self._metrics_to_dict(m) for m in sorted(
-                metrics_list, key=lambda x: x.overall_score, reverse=True
-            )],
-            "speed": [self._metrics_to_dict(m) for m in sorted(
-                metrics_list, key=lambda x: x.words_per_second, reverse=True
-            )],
-            "detail": [self._metrics_to_dict(m) for m in sorted(
-                metrics_list, key=lambda x: x.detail_score, reverse=True
-            )],
-            "efficiency": [self._metrics_to_dict(m) for m in sorted(
-                metrics_list, key=lambda x: x.efficiency_score, reverse=True
-            )],
-            "coherence": [self._metrics_to_dict(m) for m in sorted(
-                metrics_list, key=lambda x: x.coherence_score, reverse=True
-            )],
+            "overall": [
+                self._metrics_to_dict(m)
+                for m in sorted(
+                    metrics_list, key=lambda x: x.overall_score, reverse=True
+                )
+            ],
+            "speed": [
+                self._metrics_to_dict(m)
+                for m in sorted(
+                    metrics_list, key=lambda x: x.words_per_second, reverse=True
+                )
+            ],
+            "detail": [
+                self._metrics_to_dict(m)
+                for m in sorted(
+                    metrics_list, key=lambda x: x.detail_score, reverse=True
+                )
+            ],
+            "efficiency": [
+                self._metrics_to_dict(m)
+                for m in sorted(
+                    metrics_list, key=lambda x: x.efficiency_score, reverse=True
+                )
+            ],
+            "coherence": [
+                self._metrics_to_dict(m)
+                for m in sorted(
+                    metrics_list, key=lambda x: x.coherence_score, reverse=True
+                )
+            ],
         }
 
         # Estadísticas comparativas

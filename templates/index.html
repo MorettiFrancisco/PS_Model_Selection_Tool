@@ -374,6 +374,194 @@
         `;
       }
 
+      function displayComparisonResults(results) {
+        // Crear o encontrar contenedor de resultados
+        let resultsContainer = document.getElementById("comparisonResults");
+        if (!resultsContainer) {
+          resultsContainer = document.createElement("div");
+          resultsContainer.id = "comparisonResults";
+          const compareBtn = document.getElementById("compareBtn");
+          compareBtn.parentNode.insertBefore(
+            resultsContainer,
+            compareBtn.nextSibling
+          );
+        }
+
+        if (!results || !results.sequential_results) {
+          resultsContainer.innerHTML =
+            '<div class="alert alert-warning">No se recibieron resultados válidos.</div>';
+          return;
+        }
+
+        const resultsHTML = `
+          <div class="mt-4 p-4 border rounded bg-light">
+            <h4><i class="bi bi-graph-up"></i> Resultados de Comparación</h4>
+            <div class="row">
+              <div class="col-md-6">
+                <h5>Resumen General</h5>
+                <ul class="list-group list-group-flush">
+                  <li class="list-group-item d-flex justify-content-between">
+                    <span>Modelos evaluados:</span>
+                    <strong>${
+                      results.summary_metrics?.models_evaluated || 0
+                    }</strong>
+                  </li>
+                  <li class="list-group-item d-flex justify-content-between">
+                    <span>Exitosos:</span>
+                    <strong>${
+                      results.summary_metrics?.successful_evaluations || 0
+                    }</strong>
+                  </li>
+                  <li class="list-group-item d-flex justify-content-between">
+                    <span>Tiempo total:</span>
+                    <strong>${
+                      results.summary_metrics?.total_time_seconds || 0
+                    }s</strong>
+                  </li>
+                  <li class="list-group-item d-flex justify-content-between">
+                    <span>Mejor modelo:</span>
+                    <strong>${
+                      results.summary_metrics?.best_model || "N/A"
+                    }</strong>
+                  </li>
+                  <li class="list-group-item d-flex justify-content-between">
+                    <span>Más rápido:</span>
+                    <strong>${
+                      results.summary_metrics?.fastest_model || "N/A"
+                    }</strong>
+                  </li>
+                </ul>
+              </div>
+              <div class="col-md-6">
+                <h5>Imagen Analizada</h5>
+                <ul class="list-group list-group-flush">
+                  <li class="list-group-item d-flex justify-content-between">
+                    <span>Archivo:</span>
+                    <strong>${results.image_info?.filename || "N/A"}</strong>
+                  </li>
+                  <li class="list-group-item d-flex justify-content-between">
+                    <span>Tamaño:</span>
+                    <strong>${results.image_info?.size_mb || 0} MB</strong>
+                  </li>
+                </ul>
+              </div>
+            </div>
+            
+            <h5 class="mt-4">Análisis Detallado por Modelo</h5>
+            <div class="accordion" id="resultsAccordion">
+              ${
+                results.sequential_results
+                  ?.map(
+                    (result, index) => `
+                <div class="accordion-item">
+                  <h2 class="accordion-header">
+                    <button class="accordion-button ${
+                      index === 0 ? "" : "collapsed"
+                    }" type="button" data-bs-toggle="collapse" data-bs-target="#collapse${index}">
+                      <div class="d-flex justify-content-between w-100 me-3">
+                        <span><strong>${result.provider}/${
+                      result.model
+                    }</strong></span>
+                        <div>
+                          <span class="badge ${
+                            result.status === "success"
+                              ? "bg-success"
+                              : "bg-danger"
+                          } me-2">
+                            ${result.status === "success" ? "✅" : "❌"} ${
+                      result.status
+                    }
+                          </span>
+                          ${
+                            result.status === "success"
+                              ? `<span class="badge bg-primary">${
+                                  result.advanced_metrics?.overall_score?.toFixed(
+                                    2
+                                  ) || 0
+                                }/1.0</span>`
+                              : ""
+                          }
+                        </div>
+                      </div>
+                    </button>
+                  </h2>
+                  <div id="collapse${index}" class="accordion-collapse collapse ${
+                      index === 0 ? "show" : ""
+                    }" data-bs-parent="#resultsAccordion">
+                    <div class="accordion-body">
+                      ${
+                        result.status === "success"
+                          ? `
+                        <div class="row">
+                          <div class="col-md-8">
+                            <h6>Análisis:</h6>
+                            <p class="text-muted">${result.analysis}</p>
+                          </div>
+                          <div class="col-md-4">
+                            <h6>Métricas:</h6>
+                            <small>
+                              <div><strong>Tiempo:</strong> ${
+                                result.basic_metrics?.processing_time_seconds ||
+                                0
+                              }s</div>
+                              <div><strong>Score general:</strong> ${
+                                result.advanced_metrics?.overall_score?.toFixed(
+                                  2
+                                ) || 0
+                              }/1.0</div>
+                              <div><strong>Detalle:</strong> ${
+                                result.advanced_metrics?.detail_score?.toFixed(
+                                  2
+                                ) || 0
+                              }/1.0</div>
+                              <div><strong>Coherencia:</strong> ${
+                                result.advanced_metrics?.coherence_score?.toFixed(
+                                  2
+                                ) || 0
+                              }/1.0</div>
+                              <div><strong>Completitud:</strong> ${
+                                result.advanced_metrics?.completeness_score?.toFixed(
+                                  2
+                                ) || 0
+                              }/1.0</div>
+                              <div><strong>Eficiencia:</strong> ${
+                                result.advanced_metrics?.efficiency_score?.toFixed(
+                                  2
+                                ) || 0
+                              }/1.0</div>
+                              <div><strong>Palabras:</strong> ${
+                                result.advanced_metrics?.words_count || 0
+                              }</div>
+                              <div><strong>Palabras/seg:</strong> ${
+                                result.basic_metrics?.words_per_second || 0
+                              }</div>
+                            </small>
+                          </div>
+                        </div>
+                      `
+                          : `
+                        <div class="alert alert-danger">
+                          <strong>Error:</strong> ${result.analysis}
+                        </div>
+                      `
+                      }
+                    </div>
+                  </div>
+                </div>
+              `
+                  )
+                  .join("") || ""
+              }
+            </div>
+          </div>
+        `;
+
+        resultsContainer.innerHTML = resultsHTML;
+
+        // Scroll hacia los resultados
+        resultsContainer.scrollIntoView({ behavior: "smooth" });
+      }
+
       // ---------- Botón actualización ----------
       function updateCompareButton() {
         const btn = document.getElementById("compareBtn");
