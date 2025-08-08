@@ -38,7 +38,7 @@ Devuelve solo un resumen bien estructurado del contenido visible de la imagen, *
 """
 
 
-def get_agent(provider: str = "ollama", model_name: str = "gemma:2b"):
+def get_agent(provider: str = "ollama", model_name: str = "qwen2.5vl:7b"):
     """
     Crea un agente basado en el proveedor y modelo especificado.
 
@@ -68,10 +68,9 @@ def get_available_models():
     """Retorna una lista de modelos disponibles específicos del proyecto"""
     return {
         "ollama": [
-            "llava:13b",  # Soporta visión
-            "bakllava",  # Soporta visión
-            "llama3.2:3b",  # Solo texto
-            "gemma:2b",  # Solo texto
+            "qwen2.5vl:7b",  # Modelo multimodal de visión Qwen
+            "llava:7b",  # Modelo multimodal de visión Llava
+            "gemma3:4b",  # Modelo multimodal Gemma
         ],
-        "gemini": ["gemini-1.5-flash"],  # Soporta visión
+        "gemini": ["gemini-1.5-flash"],  # Modelo de visión de Google
     }

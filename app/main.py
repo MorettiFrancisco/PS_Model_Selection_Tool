@@ -1,10 +1,12 @@
 import time
-import base64
 from datetime import datetime
+from enum import Enum
 from fastapi import FastAPI, HTTPException, File, UploadFile, Form, Request
 from fastapi.responses import JSONResponse, HTMLResponse
 from fastapi.templating import Jinja2Templates
+from pydantic_ai import BinaryContent
 from .agent import get_agent, get_available_models
+from .model_evaluator import ModelEvaluator
 
 app = FastAPI(
     title="Model Selection Tool",
@@ -16,31 +18,72 @@ app = FastAPI(
 templates = Jinja2Templates(directory="templates")
 
 
+class AIProvider(str, Enum):
+    OLLAMA = "ollama"
+    GEMINI = "gemini"
+
+
+async def analyze_with_unified_approach(
+    provider: AIProvider,
+    model_name: str,
+    image_content: bytes,
+    prompt: str = "Analiza detalladamente esta imagen y describe todo lo que ves.",
+) -> str:
+    """
+    Función unificada para analizar imágenes con cualquier modelo.
+    Usa el patrón correcto de pydantic-ai con BinaryContent para todos los proveedores.
+    """
+    try:
+        match provider:
+            case AIProvider.OLLAMA | AIProvider.GEMINI:
+                # Ambos proveedores usan pydantic-ai con BinaryContent
+                agent = get_agent(provider.value, model_name)
+                result = await agent.run(
+                    [
+                        prompt,
+                        BinaryContent(data=image_content, media_type="image/png"),
+                    ]
+                )
+                return result.output.strip()
+
+            case _:
+                raise ValueError(f"Proveedor no soportado: {provider}")
+
+    except Exception as e:
+        raise Exception(f"Error con {provider.value}/{model_name}: {str(e)}")
+
+
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
-    """Página principal con formulario para seleccionar modelo y subir imagen"""
+    """Página principal con funcionalidades completas de análisis y comparación"""
     available_models = get_available_models()
     return templates.TemplateResponse(
-        "index_simple.html", {"request": request, "models": available_models}
+        "index.html", {"request": request, "models": available_models}
     )
 
 
-@app.get("/test", response_class=HTMLResponse)
-async def test_page(request: Request):
-    """Página de test para diagnosticar JavaScript"""
-    return templates.TemplateResponse("test.html", {"request": request})
+@app.get("/advanced", response_class=HTMLResponse)
+async def advanced_comparison(request: Request):
+    """Redirección a la página principal que ahora incluye todas las funcionalidades"""
+    available_models = get_available_models()
+    return templates.TemplateResponse(
+        "index.html", {"request": request, "models": available_models}
+    )
 
 
 @app.get("/api")
 async def api_info():
-    """Endpoint de información de la API"""
+    """Información general de la API"""
     return {
-        "message": "Model Selection Tool API",
-        "available_endpoints": {
-            "/": "GET - Interfaz web principal",
+        "name": "Model Selection Tool API",
+        "version": "1.0.0",
+        "description": "API para análisis de imágenes con múltiples modelos de IA",
+        "endpoints": {
+            "/": "GET - Página principal",
+            "/api": "GET - Información de la API",
+            "/api/models": "GET - Lista de modelos disponibles",
             "/api/analyze": "POST - Analizar imagen con modelo seleccionado",
-            "/api/models": "GET - Obtener modelos disponibles",
-            "/docs": "GET - Documentación interactiva",
+            "/api/compare": "POST - Comparar múltiples modelos en la misma imagen",
         },
     }
 
@@ -51,97 +94,57 @@ async def get_models():
     return get_available_models()
 
 
+@app.get("/health")
+async def health_check():
+    """Endpoint de health check para monitoreo del contenedor"""
+    return {"status": "healthy", "timestamp": datetime.now().isoformat()}
+
+
 @app.post("/api/analyze")
 async def analyze_image(
     image: UploadFile = File(...),
-    provider: str = Form(..., description="Proveedor del modelo: 'ollama' o 'gemini'"),
+    provider: AIProvider = Form(
+        ..., description="Proveedor del modelo: 'ollama' o 'gemini'"
+    ),
     model_name: str = Form(..., description="Nombre del modelo"),
 ):
     """
-    Endpoint para análisis de imágenes con métricas de rendimiento.
-
-    Parámetros:
-    - image: Archivo de imagen a analizar
-    - provider: "ollama" o "gemini"
-    - model_name: Nombre del modelo
-
-    Retorna:
-    - Análisis de la imagen
-    - Métricas de rendimiento (tiempo, tokens, etc.)
-    - Información del modelo usado
+    Endpoint unificado para análisis de imágenes con métricas de rendimiento.
+    Usa pattern matching moderno para manejar diferentes proveedores.
     """
-
-    # Métricas de inicio
     start_time = time.time()
-    analysis_timestamp = datetime.now().isoformat()
 
     try:
-        # Validar el tipo de archivo
+        # Validar imagen
         if not image.content_type or not image.content_type.startswith("image/"):
             raise HTTPException(
                 status_code=400, detail="El archivo debe ser una imagen"
             )
 
-        # Leer el contenido de la imagen
+        # Leer contenido de imagen
+        prep_start = time.time()
         image_content = await image.read()
         image_size_mb = len(image_content) / (1024 * 1024)
+        prep_time = time.time() - prep_start
 
-        # Validar tamaño de imagen (máximo 10MB)
-        if image_size_mb > 10:
-            raise HTTPException(
-                status_code=400, detail="La imagen es demasiado grande (máximo 10MB)"
-            )
+        print(f"📸 Procesando imagen: {image.filename} ({image_size_mb:.2f}MB)")
+        print(f"🤖 Modelo: {provider.value}/{model_name}")
 
-        # Crear el agente con el modelo especificado
-        try:
-            agent = get_agent(provider=provider, model_name=model_name)
-        except ValueError as e:
-            raise HTTPException(status_code=400, detail=str(e))
-
-        # Convertir imagen a base64 para el análisis
-        image_b64 = base64.b64encode(image_content).decode("utf-8")
-
-        # Tiempo de preparación
-        prep_time = time.time() - start_time
-
-        # Procesar la imagen con el agente
+        # Análisis con función unificada
         inference_start = time.time()
-        try:
-            # Para modelos de visión, necesitamos pasar la imagen correctamente
-            if provider.lower() == "ollama" and "llava" in model_name.lower():
-                # Para modelos LLaVA, incluir la imagen en el prompt
-                prompt = "Analiza esta imagen y describe detalladamente lo que ves."
-                result = await agent.run(
-                    prompt,
-                    message_history=[
-                        {
-                            "role": "user",
-                            "content": [
-                                {"type": "text", "text": prompt},
-                                {
-                                    "type": "image_url",
-                                    "image_url": {
-                                        "url": f"data:{image.content_type};base64,{image_b64}"
-                                    },
-                                },
-                            ],
-                        }
-                    ],
-                )
-            else:
-                # Para otros modelos, usar solo texto
-                prompt = f"Analiza esta imagen (tamaño: {image_size_mb:.2f}MB, tipo: {image.content_type}) y describe lo que puedes inferir de ella."
-                result = await agent.run(prompt)
+        analysis_timestamp = datetime.now().isoformat()
 
-        except Exception as e:
-            raise HTTPException(
-                status_code=500,
-                detail=f"Error procesando imagen con {provider}/{model_name}: {str(e)}",
-            )
+        result = await analyze_with_unified_approach(
+            provider=provider,
+            model_name=model_name,
+            image_content=image_content,
+            prompt="Analiza detalladamente esta imagen y describe todo lo que ves.",
+        )
 
-        # Calcular métricas finales
         inference_time = time.time() - inference_start
         total_time = time.time() - start_time
+
+        print(f"✅ Análisis completado en {total_time:.2f}s")
 
         # Métricas del análisis
         analysis_metrics = {
@@ -157,13 +160,11 @@ async def analyze_image(
             else 0,
         }
 
-        # Información del modelo
+        # Información del modelo (todos los modelos soportan visión)
         model_info = {
-            "provider": provider,
+            "provider": provider.value,
             "model_name": model_name,
-            "supports_vision": provider.lower() == "ollama"
-            and "llava" in model_name.lower()
-            or provider.lower() == "gemini",
+            "supports_vision": True,  # Todos nuestros modelos soportan visión
             "timestamp": analysis_timestamp,
         }
 
@@ -182,7 +183,7 @@ async def analyze_image(
                 "metrics": analysis_metrics,
                 "model_info": model_info,
                 "image_info": image_info,
-                "provider": provider,
+                "provider": provider.value,
                 "model": model_name,
             }
         )
@@ -191,6 +192,7 @@ async def analyze_image(
         raise
     except Exception as e:
         error_time = time.time() - start_time
+        print(f"❌ Error en análisis: {str(e)}")
         raise HTTPException(
             status_code=500,
             detail={
@@ -212,19 +214,9 @@ async def compare_models(
     ),
 ):
     """
-    Endpoint para comparar múltiples modelos en la misma imagen.
-
-    Parámetros:
-    - image: Archivo de imagen a analizar
-    - providers: Lista de proveedores separados por coma
-    - models: Lista de modelos separados por coma (deben corresponder con providers)
-
-    Retorna:
-    - Comparación detallada entre modelos
-    - Métricas de rendimiento de cada uno
-    - Análisis comparativo
+    Endpoint unificado para comparar múltiples modelos en la misma imagen.
+    Usa la función unificada con pattern matching para consistencia entre modelos.
     """
-
     start_time = time.time()
 
     try:
@@ -234,9 +226,22 @@ async def compare_models(
                 status_code=400, detail="El archivo debe ser una imagen"
             )
 
-        # Parsear listas
-        provider_list = [p.strip() for p in providers.split(",")]
-        model_list = [m.strip() for m in models.split(",")]
+        # Leer contenido de imagen
+        image_content = await image.read()
+        image_size_mb = len(image_content) / (1024 * 1024)
+
+        # Procesar listas de proveedores y modelos con validación de enum
+        provider_strings = [p.strip() for p in providers.split(",") if p.strip()]
+        model_list = [m.strip() for m in models.split(",") if m.strip()]
+
+        # Convertir strings a enum AIProvider
+        try:
+            provider_list = [AIProvider(p.lower()) for p in provider_strings]
+        except ValueError as e:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Proveedor inválido. Use 'ollama' o 'gemini': {e}",
+            )
 
         if len(provider_list) != len(model_list):
             raise HTTPException(
@@ -244,134 +249,125 @@ async def compare_models(
                 detail="El número de proveedores debe coincidir con el número de modelos",
             )
 
-        # Leer imagen una sola vez
-        image_content = await image.read()
-        image_size_mb = len(image_content) / (1024 * 1024)
+        print(f"📸 Comparando imagen: {image.filename} ({image_size_mb:.2f}MB)")
+        print(f"🤖 Modelos a comparar: {len(model_list)}")
 
-        if image_size_mb > 10:
-            raise HTTPException(
-                status_code=400, detail="Imagen demasiado grande (máximo 10MB)"
-            )
-
-        # Preparar imagen
-        image_b64 = base64.b64encode(image_content).decode("utf-8")
-
-        # Resultados por modelo
+        # Análisis con cada modelo usando función unificada
         results = []
-
-        for provider, model_name in zip(provider_list, model_list):
+        for provider_str, model_name in zip(provider_list, model_list):
             model_start = time.time()
 
             try:
-                # Crear agente
-                agent = get_agent(provider=provider, model_name=model_name)
+                # Convertir string a enum
+                provider = AIProvider(provider_str.lower())
 
-                # Procesar imagen
-                inference_start = time.time()
+                print(f"🔄 Analizando con {provider.value}/{model_name}...")
 
-                if provider.lower() == "ollama" and "llava" in model_name.lower():
-                    prompt = "Analiza esta imagen y describe detalladamente lo que ves."
-                    result = await agent.run(
-                        prompt,
-                        message_history=[
-                            {
-                                "role": "user",
-                                "content": [
-                                    {"type": "text", "text": prompt},
-                                    {
-                                        "type": "image_url",
-                                        "image_url": {
-                                            "url": f"data:{image.content_type};base64,{image_b64}"
-                                        },
-                                    },
-                                ],
-                            }
-                        ],
-                    )
-                else:
-                    prompt = f"Analiza esta imagen (tamaño: {image_size_mb:.2f}MB) y describe lo que ves."
-                    result = await agent.run(prompt)
+                result = await analyze_with_unified_approach(
+                    provider=provider,
+                    model_name=model_name,
+                    image_content=image_content,
+                    prompt="Analiza detalladamente esta imagen y describe todo lo que ves.",
+                )
 
-                inference_time = time.time() - inference_start
-                total_model_time = time.time() - model_start
-
-                # Métricas del modelo
-                model_metrics = {
-                    "provider": provider,
-                    "model": model_name,
-                    "inference_time": round(inference_time, 3),
-                    "total_time": round(total_model_time, 3),
-                    "response_length": len(str(result)),
-                    "words_count": len(str(result).split()),
-                    "words_per_second": round(
-                        len(str(result).split()) / inference_time, 2
-                    )
-                    if inference_time > 0
-                    else 0,
-                    "success": True,
-                    "analysis": str(result),
-                }
-
-                results.append(model_metrics)
-
-            except Exception as e:
-                # Error en modelo específico
                 model_time = time.time() - model_start
+
                 results.append(
                     {
-                        "provider": provider,
+                        "provider": provider.value,
                         "model": model_name,
-                        "inference_time": round(model_time, 3),
-                        "total_time": round(model_time, 3),
-                        "success": False,
-                        "error": str(e),
-                        "response_length": 0,
-                        "words_count": 0,
-                        "words_per_second": 0,
-                        "analysis": None,
+                        "analysis": str(result),
+                        "processing_time_seconds": round(model_time, 3),
+                        "response_length_chars": len(str(result)),
+                        "words_per_second": round(
+                            len(str(result).split()) / model_time, 2
+                        )
+                        if model_time > 0
+                        else 0,
+                        "status": "success",
                     }
                 )
 
-        # Análisis comparativo
-        successful_results = [r for r in results if r["success"]]
+                print(
+                    f"✅ {provider.value}/{model_name} completado en {model_time:.2f}s"
+                )
 
-        if not successful_results:
-            raise HTTPException(
-                status_code=500, detail="Ningún modelo pudo procesar la imagen"
-            )
+            except ValueError:
+                # Error de enum (proveedor no válido)
+                model_time = time.time() - model_start
+                print(f"❌ Proveedor no válido: {provider_str}")
+
+                results.append(
+                    {
+                        "provider": provider_str,
+                        "model": model_name,
+                        "analysis": f"Error: Proveedor no válido '{provider_str}'. Use: {', '.join([p.value for p in AIProvider])}",
+                        "processing_time_seconds": round(model_time, 3),
+                        "response_length_chars": 0,
+                        "words_per_second": 0,
+                        "status": "error",
+                    }
+                )
+
+            except Exception as e:
+                model_time = time.time() - model_start
+                print(f"❌ Error con {provider_str}/{model_name}: {str(e)}")
+
+                results.append(
+                    {
+                        "provider": provider_str,
+                        "model": model_name,
+                        "analysis": f"Error: {str(e)}",
+                        "processing_time_seconds": round(model_time, 3),
+                        "response_length_chars": 0,
+                        "words_per_second": 0,
+                        "status": "error",
+                    }
+                )
+
+        total_time = time.time() - start_time
 
         # Métricas comparativas
+        successful_results = [r for r in results if r["status"] == "success"]
+
         comparison_metrics = {
-            "fastest_model": min(successful_results, key=lambda x: x["inference_time"]),
-            "slowest_model": max(successful_results, key=lambda x: x["inference_time"]),
-            "most_verbose": max(successful_results, key=lambda x: x["words_count"]),
-            "most_concise": min(successful_results, key=lambda x: x["words_count"]),
-            "average_inference_time": round(
-                sum(r["inference_time"] for r in successful_results)
+            "total_comparison_time_seconds": round(total_time, 3),
+            "models_compared": len(results),
+            "successful_analyses": len(successful_results),
+            "failed_analyses": len(results) - len(successful_results),
+            "average_response_time": round(
+                sum(r["processing_time_seconds"] for r in successful_results)
                 / len(successful_results),
                 3,
-            ),
-            "average_response_length": round(
-                sum(r["words_count"] for r in successful_results)
-                / len(successful_results),
-                1,
-            ),
-            "total_comparison_time": round(time.time() - start_time, 3),
-            "models_tested": len(results),
-            "successful_models": len(successful_results),
-            "failed_models": len(results) - len(successful_results),
+            )
+            if successful_results
+            else 0,
+            "fastest_model": min(
+                successful_results, key=lambda x: x["processing_time_seconds"]
+            )["model"]
+            if successful_results
+            else None,
+            "slowest_model": max(
+                successful_results, key=lambda x: x["processing_time_seconds"]
+            )["model"]
+            if successful_results
+            else None,
+        }
+
+        # Información de la imagen
+        image_info = {
+            "filename": image.filename,
+            "content_type": image.content_type,
+            "size_bytes": len(image_content),
+            "size_mb": round(image_size_mb, 3),
         }
 
         return JSONResponse(
             content={
                 "status": "success",
-                "image_info": {
-                    "filename": image.filename,
-                    "size_mb": round(image_size_mb, 3),
-                    "content_type": image.content_type,
-                },
-                "individual_results": results,
-                "comparison_metrics": comparison_metrics,
+                "comparison_results": results,
+                "metrics": comparison_metrics,
+                "image_info": image_info,
                 "timestamp": datetime.now().isoformat(),
             }
         )
@@ -379,20 +375,246 @@ async def compare_models(
     except HTTPException:
         raise
     except Exception as e:
-        total_time = time.time() - start_time
+        error_time = time.time() - start_time
+        print(f"❌ Error en comparación: {str(e)}")
         raise HTTPException(
             status_code=500,
             detail={
-                "error": f"Error en comparación: {str(e)}",
-                "processing_time": round(total_time, 3),
+                "error": f"Error interno del servidor: {str(e)}",
+                "processing_time": round(error_time, 3),
+                "timestamp": datetime.now().isoformat(),
             },
         )
 
 
-@app.get("/health")
-async def health_check():
-    """Endpoint de verificación de salud"""
-    return {"status": "healthy", "message": "API funcionando correctamente"}
+@app.post("/api/compare-sequential")
+async def compare_models_sequential(
+    image: UploadFile = File(...),
+    providers: str = Form(..., description="Proveedores separados por coma"),
+    models: str = Form(..., description="Modelos separados por coma"),
+):
+    """
+    Endpoint para comparación secuencial de modelos con métricas avanzadas.
+    Ejecuta un modelo a la vez para evitar sobrecarga del sistema.
+    """
+    import asyncio
+
+    start_time = time.time()
+    evaluator = ModelEvaluator()
+
+    try:
+        # Validar imagen
+        if not image.content_type or not image.content_type.startswith("image/"):
+            raise HTTPException(
+                status_code=400, detail="El archivo debe ser una imagen"
+            )
+
+        # Leer contenido de imagen
+        image_content = await image.read()
+        image_size_mb = len(image_content) / (1024 * 1024)
+
+        # Procesar listas de proveedores y modelos con validación de enum
+        provider_strings = [p.strip() for p in providers.split(",") if p.strip()]
+        model_list = [m.strip() for m in models.split(",") if m.strip()]
+
+        # Convertir strings a enum AIProvider
+        try:
+            provider_list = [AIProvider(p.lower()) for p in provider_strings]
+        except ValueError as e:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Proveedor inválido. Use 'ollama' o 'gemini': {e}",
+            )
+
+        if len(provider_list) != len(model_list):
+            raise HTTPException(
+                status_code=400,
+                detail="El número de proveedores debe coincidir con el número de modelos",
+            )
+
+        print(f"🔄 Comparación secuencial - {len(model_list)} modelos")
+        print(f"📸 Imagen: {image.filename} ({image_size_mb:.2f}MB)")
+
+        # Análisis secuencial con métricas avanzadas
+        results = []
+        model_metrics = []
+
+        for i, (provider, model_name) in enumerate(zip(provider_list, model_list), 1):
+            model_start = time.time()
+
+            try:
+                print(
+                    f"🤖 [{i}/{len(model_list)}] Analizando con {provider.value}/{model_name}..."
+                )
+
+                result = await analyze_with_unified_approach(
+                    provider=provider,
+                    model_name=model_name,
+                    image_content=image_content,
+                    prompt="Analiza detalladamente esta imagen y describe todo lo que ves.",
+                )
+
+                model_time = time.time() - model_start
+
+                # Evaluación avanzada con métricas
+                metrics = evaluator.evaluate_response(
+                    response_text=result,
+                    response_time=model_time,
+                    provider=provider.value,
+                    model=model_name,
+                    image_size_bytes=len(image_content),
+                )
+
+                model_metrics.append(metrics)
+
+                results.append(
+                    {
+                        "provider": provider.value,
+                        "model": model_name,
+                        "analysis": str(result),
+                        "basic_metrics": {
+                            "processing_time_seconds": round(model_time, 3),
+                            "response_length_chars": len(str(result)),
+                            "words_per_second": round(
+                                len(str(result).split()) / model_time, 2
+                            )
+                            if model_time > 0
+                            else 0,
+                        },
+                        "advanced_metrics": {
+                            "overall_score": metrics.overall_score,
+                            "detail_score": metrics.detail_score,
+                            "coherence_score": metrics.coherence_score,
+                            "completeness_score": metrics.completeness_score,
+                            "efficiency_score": metrics.efficiency_score,
+                            "readability_score": metrics.readability_score,
+                            "words_count": metrics.words_count,
+                            "sentences_count": metrics.sentences_count,
+                        },
+                        "status": "success",
+                        "position": i,
+                    }
+                )
+
+                print(
+                    f"✅ [{i}/{len(model_list)}] {provider.value}/{model_name} - Score: {metrics.overall_score:.2f} ({model_time:.2f}s)"
+                )
+
+                # Pequeña pausa entre modelos para evitar sobrecarga
+                if i < len(model_list):  # No pausar después del último
+                    await asyncio.sleep(0.5)
+
+            except Exception as e:
+                model_time = time.time() - model_start
+                print(
+                    f"❌ [{i}/{len(model_list)}] Error con {provider.value}/{model_name}: {str(e)}"
+                )
+
+                results.append(
+                    {
+                        "provider": provider.value,
+                        "model": model_name,
+                        "analysis": f"Error: {str(e)}",
+                        "basic_metrics": {
+                            "processing_time_seconds": round(model_time, 3),
+                            "response_length_chars": 0,
+                            "words_per_second": 0,
+                        },
+                        "advanced_metrics": {
+                            "overall_score": 0,
+                            "detail_score": 0,
+                            "coherence_score": 0,
+                            "completeness_score": 0,
+                            "efficiency_score": 0,
+                            "readability_score": 0,
+                            "words_count": 0,
+                            "sentences_count": 0,
+                        },
+                        "status": "error",
+                        "position": i,
+                    }
+                )
+
+        total_time = time.time() - start_time
+
+        print(f"🔍 Depuración - model_metrics count: {len(model_metrics)}")
+        for i, metric in enumerate(model_metrics):
+            print(
+                f"   [{i}] {metric.provider}/{metric.model} - Score: {metric.overall_score}"
+            )
+
+        # Generar comparación avanzada
+        try:
+            comparison_analysis = evaluator.compare_models(model_metrics)
+            print(f"🔍 comparison_analysis type: {type(comparison_analysis)}")
+            if isinstance(comparison_analysis, dict):
+                print(
+                    f"🔍 comparison_analysis keys: {list(comparison_analysis.keys())}"
+                )
+        except Exception as e:
+            print(f"❌ Error en compare_models: {e}")
+            comparison_analysis = {"error": str(e), "stats": {}}
+
+        # Métricas del conjunto completo
+        successful_results = [r for r in results if r["status"] == "success"]
+
+        # Manejo seguro de comparison_analysis
+        stats = (
+            comparison_analysis.get("stats", {})
+            if isinstance(comparison_analysis, dict)
+            else {}
+        )
+
+        summary_metrics = {
+            "total_time_seconds": round(total_time, 3),
+            "models_evaluated": len(results),
+            "successful_evaluations": len(successful_results),
+            "failed_evaluations": len(results) - len(successful_results),
+            "average_score": stats.get("avg_score", 0),
+            "best_model": stats.get("best_overall", {}).get("model", "N/A")
+            if stats.get("best_overall")
+            else "N/A",
+            "fastest_model": stats.get("fastest", {}).get("model", "N/A")
+            if stats.get("fastest")
+            else "N/A",
+            "most_detailed_model": stats.get("most_detailed", {}).get("model", "N/A")
+            if stats.get("most_detailed")
+            else "N/A",
+        }
+
+        # Información de la imagen
+        image_info = {
+            "filename": image.filename,
+            "content_type": image.content_type,
+            "size_bytes": len(image_content),
+            "size_mb": round(image_size_mb, 3),
+        }
+
+        return JSONResponse(
+            content={
+                "status": "success",
+                "sequential_results": results,
+                "summary_metrics": summary_metrics,
+                "detailed_comparison": comparison_analysis,
+                "image_info": image_info,
+                "timestamp": datetime.now().isoformat(),
+                "execution_mode": "sequential",
+            }
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        error_time = time.time() - start_time
+        print(f"❌ Error en comparación secuencial: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "error": f"Error interno del servidor: {str(e)}",
+                "processing_time": round(error_time, 3),
+                "timestamp": datetime.now().isoformat(),
+            },
+        )
 
 
 if __name__ == "__main__":
